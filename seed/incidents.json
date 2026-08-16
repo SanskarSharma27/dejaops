@@ -1,0 +1,151 @@
+{
+  "incidents": [
+    {
+      "external_key": "seed-001",
+      "service": "payment-gateway",
+      "title": "Checkout timeouts spiking to 30% of requests",
+      "severity": "SEV1",
+      "symptoms": "p99 latency on /charge jumped from 400ms to 12s. Timeout errors on 30% of checkout attempts. Downstream card processor reporting normal. Started 10 minutes after the 14:00 deploy.",
+      "root_cause": "Deploy 2417 introduced an N+1 query in fraud-check that exhausted the connection pool under load.",
+      "resolution": "Rolled back deploy 2417; connection pool recovered within 2 minutes. Fix shipped next day with the query batched.",
+      "days_ago": 92
+    },
+    {
+      "external_key": "seed-002",
+      "service": "payment-gateway",
+      "title": "TLS handshake failures from EU merchants",
+      "severity": "SEV2",
+      "symptoms": "EU merchants receiving SSL_ERROR_HANDSHAKE. US traffic unaffected. Certificate transparency logs show the EU edge cert expired at midnight UTC.",
+      "root_cause": "Edge certificate for eu.pay.acme.com expired; auto-renewal job had been silently failing for 3 weeks due to a revoked DNS API token.",
+      "resolution": "Rotated the certificate manually, restored the DNS API token, and added alerting on renewal-job failures.",
+      "days_ago": 78
+    },
+    {
+      "external_key": "seed-003",
+      "service": "auth-service",
+      "title": "Login failures: token validation rejecting valid sessions",
+      "severity": "SEV1",
+      "symptoms": "All logins failing with 401 invalid_token. Sessions created before 09:00 validate fine. JWT signature verification failing for new tokens only.",
+      "root_cause": "Clock skew: one of three auth pods drifted 4 minutes after NTP was blocked by a new egress firewall rule, so tokens it issued appeared to be from the future.",
+      "resolution": "Restarted the drifted pod, fixed the egress rule to allow NTP, added clock-skew alerting.",
+      "days_ago": 71
+    },
+    {
+      "external_key": "seed-004",
+      "service": "orders-api",
+      "title": "Order writes failing: disk pressure on primary DB node",
+      "severity": "SEV2",
+      "symptoms": "INSERT latency climbing, then write failures. DB node disk at 97%. WAL segments accumulating faster than checkpointing could recycle them.",
+      "root_cause": "A debug log table added for a one-off investigation was never dropped and grew to 400GB.",
+      "resolution": "Dropped the debug table, ran cleanup, added disk-usage alerts at 80% with table-size breakdown.",
+      "days_ago": 64
+    },
+    {
+      "external_key": "seed-005",
+      "service": "search-service",
+      "title": "Search results empty for ~15% of queries",
+      "severity": "SEV3",
+      "symptoms": "Users intermittently seeing zero results for queries that normally return many. One of six index shards returning empty responses with HTTP 200.",
+      "root_cause": "Shard 4 replica desynced after an OOM kill and rejoined serving an empty index while reporting healthy.",
+      "resolution": "Forced re-sync of shard 4 from the primary; changed readiness probe to verify document count, not just process liveness.",
+      "days_ago": 55
+    },
+    {
+      "external_key": "seed-006",
+      "service": "notification-service",
+      "title": "Email queue backlog: 2M messages and growing",
+      "severity": "SEV2",
+      "symptoms": "Email delivery latency hours behind. Queue depth growing 500/s. Workers alive but each send taking 30s. SMTP provider dashboard shows our IPs rate-limited.",
+      "root_cause": "A marketing batch job triggered provider rate limiting; workers retried with no backoff, keeping us pinned at the limit.",
+      "resolution": "Paused the batch job, added exponential backoff with jitter to workers, drained the queue over 4 hours, sharded future batch sends.",
+      "days_ago": 47
+    },
+    {
+      "external_key": "seed-007",
+      "service": "payment-gateway",
+      "title": "Duplicate charges reported by customers",
+      "severity": "SEV1",
+      "symptoms": "Support tickets reporting double charges. Payment processor shows two identical captures 30s apart for affected orders. Correlated with a network blip causing client retries.",
+      "root_cause": "Charge endpoint was not idempotent: client retries after gateway timeouts re-executed the capture instead of returning the original result.",
+      "resolution": "Added idempotency keys to the charge flow with unique-constraint dedupe in the transaction; refunded affected customers.",
+      "days_ago": 40
+    },
+    {
+      "external_key": "seed-008",
+      "service": "inventory-service",
+      "title": "Stock levels drifting negative for hot SKUs",
+      "severity": "SEV2",
+      "symptoms": "Flash-sale SKUs showing negative stock. Oversold by ~3% on top items. Reads served from a cache updated by two writers racing.",
+      "root_cause": "Read-modify-write on stock counts without transactional isolation; concurrent decrements lost updates under contention.",
+      "resolution": "Moved decrements into a single serializable transaction with retry-on-conflict; backfilled correct counts from the order ledger.",
+      "days_ago": 33
+    },
+    {
+      "external_key": "seed-009",
+      "service": "orders-api",
+      "title": "API 5xx spike after dependency upgrade",
+      "severity": "SEV2",
+      "symptoms": "500s at 8% immediately after the morning deploy. Stack traces show serialization errors on the orders response model. No infra changes.",
+      "root_cause": "Minor-version bump of the JSON serialization library changed default datetime handling, breaking responses for orders with null shipped_at.",
+      "resolution": "Rolled back the deploy, pinned the dependency, added a contract test for the response schema.",
+      "days_ago": 26
+    },
+    {
+      "external_key": "seed-010",
+      "service": "auth-service",
+      "title": "Rate-limit storm from misbehaving mobile client",
+      "severity": "SEV3",
+      "symptoms": "Auth endpoint QPS 20x normal. A specific mobile app version retrying token refresh in a tight loop on every 401. Legitimate users seeing elevated latency.",
+      "root_cause": "Mobile release 5.2.1 shipped a retry loop without backoff on token refresh failure; a cohort with revoked tokens created a storm.",
+      "resolution": "Rate-limited by client version at the edge, forced upgrade for 5.2.1, added server-side Retry-After headers the client honors.",
+      "days_ago": 19
+    },
+    {
+      "external_key": "seed-011",
+      "service": "search-service",
+      "title": "Search latency degraded after index grew past memory",
+      "severity": "SEV3",
+      "symptoms": "p95 search latency doubled over two weeks. No deploys correlated. Index size crossed available page-cache memory; disk reads per query climbing steadily.",
+      "root_cause": "Organic index growth exceeded node memory; queries went from page-cache-hot to disk-bound.",
+      "resolution": "Scaled index nodes up a memory tier and added index-size-to-memory ratio monitoring with a 75% alert.",
+      "days_ago": 12
+    },
+    {
+      "external_key": "seed-012",
+      "service": "notification-service",
+      "title": "Push notifications failing for iOS users",
+      "severity": "SEV3",
+      "symptoms": "iOS push delivery at 0% since 03:00. Android normal. APNs returning 403 InvalidProviderToken.",
+      "root_cause": "APNs auth key was revoked when a departing employee's Apple Developer account was deactivated; the key had been created under their personal account.",
+      "resolution": "Generated a new APNs key under the org account, rotated it into the service, audited other credentials for personal-account ownership.",
+      "days_ago": 5
+    }
+  ],
+  "runbooks": [
+    {
+      "service": "payment-gateway",
+      "title": "Runbook: Checkout latency / timeout spikes",
+      "body": "1. Check deploy timeline — was there a deploy in the last 30 min? If yes, compare p99 before/after.\n2. Check connection pool saturation (active vs max connections) on the gateway and fraud-check.\n3. Check downstream processor status page.\n4. If deploy-correlated: rollback_deploy first, investigate later.\n5. If pool-saturated without a deploy: flush_connection_pool, then find the slow query.\n6. Verify recovery: p99 under 800ms for 5 consecutive minutes."
+    },
+    {
+      "service": "payment-gateway",
+      "title": "Runbook: Duplicate charge reports",
+      "body": "1. Pull processor capture records for affected orders; confirm duplicate captures and their spacing.\n2. Correlate with gateway timeout/retry logs — duplicates usually follow client retries after timeouts.\n3. Verify idempotency keys are being generated AND enforced (unique constraint, same transaction as the capture record).\n4. Refund duplicates via the bulk refund tool; notify support with the affected-order list.\n5. Never disable retries as a fix — fix idempotency instead."
+    },
+    {
+      "service": "auth-service",
+      "title": "Runbook: Sudden widespread 401s / token validation failures",
+      "body": "1. Determine scope: all tokens or only recently issued ones? Only-new points at issuance; all points at validation config.\n2. Check clock skew across auth pods (compare NTP offsets) — skew breaks iat/exp validation.\n3. Check for recent key rotation; verify JWKS endpoint serves the current key set.\n4. Drifted clock: restart_service on the affected pod and confirm NTP reachability (egress rules).\n5. Add skew alerting if not present."
+    },
+    {
+      "service": "orders-api",
+      "title": "Runbook: Database disk pressure",
+      "body": "1. Identify biggest tables and recent growth (table-size breakdown, not just total disk).\n2. Look for debug/temp/log tables that should not exist in prod.\n3. Check WAL accumulation vs checkpoint rate.\n4. Free space fastest-first: drop known-junk tables, then archive cold data.\n5. Do NOT expand disk as the first move if growth is anomalous — find the source.\n6. Alert at 80% with per-table attribution."
+    },
+    {
+      "service": "notification-service",
+      "title": "Runbook: Delivery queue backlog",
+      "body": "1. Measure inflow vs drain rate — backlog math tells you if you must act or can wait.\n2. Check provider rate-limit status before scaling workers: more workers against a rate limit makes it worse.\n3. Identify the inflow source (batch job? incident-driven spike?) and pause it if batch.\n4. Ensure workers back off exponentially with jitter on provider 429s.\n5. scale_up only after the rate limit is cleared.\n6. Post drain-ETA to the incident channel hourly."
+    }
+  ]
+}
