@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DejaOps — incident copilot</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --dim:#8b949e;
+          --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:14px 20px; border-bottom:1px solid var(--border); display:flex; gap:12px; align-items:baseline; }
+  header h1 { margin:0; font-size:18px; } header span { color:var(--dim); font-size:12px; }
+  main { display:grid; grid-template-columns:280px 1fr 380px; gap:12px; padding:12px; height:calc(100vh - 60px); }
+  section { background:var(--panel); border:1px solid var(--border); border-radius:8px;
+            padding:12px; overflow-y:auto; display:flex; flex-direction:column; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:0 0 8px; }
+  .inc { padding:8px; border:1px solid var(--border); border-radius:6px; margin-bottom:6px; cursor:pointer; }
+  .inc:hover, .inc.active { border-color:var(--accent); }
+  .inc .svc { color:var(--dim); font-size:12px; }
+  .sev { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--warn); color:var(--warn); }
+  .sev.SEV1 { border-color:var(--bad); color:var(--bad); }
+  .status-resolved { color:var(--ok); } .status-open { color:var(--warn); }
+  input, textarea, select, button { background:var(--bg); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:7px 9px; font:inherit; width:100%; margin-bottom:6px; }
+  button { cursor:pointer; background:#1f6feb; border-color:#1f6feb; }
+  button:hover { background:#388bfd; } button:disabled { opacity:.5; cursor:wait; }
+  #chatlog { flex:1; overflow-y:auto; margin-bottom:8px; }
+  .msg { padding:8px 10px; border-radius:6px; margin-bottom:8px; white-space:pre-wrap; }
+  .msg.user { background:#1c2733; } .msg.agent { background:#12261b; border:1px solid #1f4d2e; }
+  .msg .who { font-size:11px; color:var(--dim); margin-bottom:2px; }
+  .trace-item { border-left:3px solid var(--accent); padding:6px 8px; margin-bottom:8px; background:var(--bg);
+                border-radius:0 6px 6px 0; font-size:12px; }
+  .trace-item.ledger { border-left-color:var(--warn); }
+  .trace-item.working_memory_write { border-left-color:var(--ok); }
+  .hit { margin:4px 0 4px 8px; color:var(--dim); }
+  .simbar { display:inline-block; height:8px; background:var(--accent); border-radius:2px; vertical-align:middle; }
+  .tag { font-size:10px; border:1px solid var(--border); border-radius:8px; padding:0 5px; color:var(--dim); }
+  .dup { color:var(--bad); font-weight:bold; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td, th { border-bottom:1px solid var(--border); padding:4px 6px; text-align:left; vertical-align:top; }
+  details { margin-bottom:10px; } summary { cursor:pointer; color:var(--dim); }
+  .muted { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DejaOps</h1>
+  <span>on-call copilot · memory: CockroachDB (vector + TTL + ledger + time travel)</span>
+</header>
+<main>
+  <section>
+    <h2>Incidents</h2>
+    <div id="incidents" class="muted">loading…</div>
+    <details>
+      <summary>Simulate incoming alert</summary>
+      <input id="a-service" placeholder="service (e.g. payment-gateway)">
+      <input id="a-title" placeholder="alert title">
+      <select id="a-sev"><option>SEV1</option><option selected>SEV2</option><option>SEV3</option><option>SEV4</option></select>
+      <textarea id="a-desc" rows="3" placeholder="symptoms…"></textarea>
+      <button id="a-send" onclick="sendAlert()">Fire alert</button>
+    </details>
+  </section>
+
+  <section>
+    <h2 id="chat-title">Copilot</h2>
+    <div id="chatlog"><div class="muted">Select an incident, or fire a simulated alert.</div></div>
+    <div style="display:flex; gap:6px">
+      <input id="chat-in" placeholder="talk to the copilot…" onkeydown="if(event.key==='Enter')sendChat()">
+      <button style="width:90px" id="chat-send" onclick="sendChat()">Send</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Memory (live from CockroachDB)</h2>
+    <div id="trace" class="muted">Agent memory operations appear here — recalls with similarity scores, working-memory writes, exactly-once ledger results.</div>
+    <h2 style="margin-top:14px">Action ledger</h2>
+    <div id="ledger" class="muted">—</div>
+    <h2 style="margin-top:14px">Time travel</h2>
+    <div class="muted">What did the agent know at…</div>
+    <input id="replay-at" placeholder="2026-08-16T14:30:00Z">
+    <button onclick="doReplay()">Replay knowledge state</button>
+    <div id="replay-out"></div>
+  </section>
+</main>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+let current = null;
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({"Content-Type": "application/json"}, TOKEN ? {"X-Demo-Token": TOKEN} : {}, opts.headers || {});
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+  return r.json();
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+async function loadIncidents() {
+  const list = await api("/api/incidents");
+  const el = document.getElementById("incidents");
+  el.classList.remove("muted");
+  el.innerHTML = list.map(i => `
+    <div class="inc ${current === i.id ? "active" : ""}" onclick="selectIncident('${i.id}')">
+      <div><span class="sev ${i.severity}">${i.severity}</span>
+           <span class="status-${i.status}">${i.status}</span></div>
+      <div>${esc(i.title)}</div><div class="svc">${esc(i.service)}</div>
+    </div>`).join("") || '<div class="muted">none yet</div>';
+}
+
+async function selectIncident(id) {
+  current = id;
+  const d = await api(`/api/incidents/${id}`);
+  document.getElementById("chat-title").textContent = `Copilot — ${d.incident.title}`;
+  const logEl = document.getElementById("chatlog");
+  logEl.innerHTML = d.events.map(e => `
+    <div class="msg ${e.kind === "user" ? "user" : "agent"}">
+      <div class="who">${esc(e.kind)} · ${esc(e.ts)}</div>${esc(e.body)}
+    </div>`).join("");
+  logEl.scrollTop = logEl.scrollHeight;
+  renderLedger(d.ledger);
+  loadIncidents();
+}
+
+function renderTrace(trace) {
+  const el = document.getElementById("trace");
+  el.classList.remove("muted");
+  if (!trace || !trace.length) { el.innerHTML = '<div class="muted">no memory ops this turn</div>'; return; }
+  el.innerHTML = trace.map(t => {
+    if (t.op === "recall") {
+      return `<div class="trace-item"><b>RECALL</b> <span class="tag">${t.tier}</span> “${esc(t.query)}”
+        ${t.hits.map(h => `<div class="hit">
+          <span class="simbar" style="width:${Math.max(4, h.similarity * 60)}px"></span>
+          ${(h.similarity * 100).toFixed(1)}% · ${esc(h.content.split("\n")[0].slice(0, 90))}</div>`).join("")}
+      </div>`;
+    }
+    if (t.op === "working_memory_write")
+      return `<div class="trace-item working_memory_write"><b>WORKING MEMORY</b> (TTL 4h) ${esc(t.key)} = ${esc(t.value.slice(0, 120))}</div>`;
+    if (t.op === "ledger") {
+      const dup = t.result.status === "duplicate_suppressed";
+      return `<div class="trace-item ledger"><b>LEDGER</b> ${esc(t.action)} → ${esc(t.target)}<br>
+        ${dup ? '<span class="dup">DUPLICATE SUPPRESSED — side effect not re-executed</span>'
+              : esc(t.result.result || t.result.status)}
+        <div class="muted">key ${esc(t.result.idempotency_key || "")}</div></div>`;
+    }
+    if (t.op === "consolidate")
+      return `<div class="trace-item"><b>CONSOLIDATED</b> episode → runbook “${esc(t.runbook_title || "")}”</div>`;
+    return `<div class="trace-item">${esc(JSON.stringify(t))}</div>`;
+  }).join("");
+}
+
+function renderLedger(rows) {
+  const el = document.getElementById("ledger");
+  el.classList.remove("muted");
+  el.innerHTML = rows && rows.length
+    ? `<table><tr><th>action</th><th>status</th><th>at</th></tr>` +
+      rows.map(r => `<tr><td>${esc(r.action)}</td><td>${esc(r.status)}</td><td>${esc(r.applied_at)}</td></tr>`).join("") + `</table>`
+    : '<div class="muted">no actions yet</div>';
+}
+
+async function sendAlert() {
+  const btn = document.getElementById("a-send"); btn.disabled = true;
+  try {
+    const out = await api("/api/alerts", { method: "POST", body: JSON.stringify({
+      service: document.getElementById("a-service").value,
+      title: document.getElementById("a-title").value,
+      severity: document.getElementById("a-sev").value,
+      description: document.getElementById("a-desc").value,
+    })});
+    renderTrace(out.memory_trace);
+    await selectIncident(out.incident_id);
+  } catch (e) { alert(e.message); } finally { btn.disabled = false; }
+}
+
+async function sendChat() {
+  if (!current) { alert("select an incident first"); return; }
+  const input = document.getElementById("chat-in");
+  const msg = input.value.trim(); if (!msg) return;
+  const btn = document.getElementById("chat-send"); btn.disabled = true; input.value = "";
+  try {
+    const out = await api(`/api/incidents/${current}/chat`, { method: "POST", body: JSON.stringify({ message: msg }) });
+    renderTrace(out.memory_trace);
+    await selectIncident(current);
+  } catch (e) { alert(e.message); } finally { btn.disabled = false; }
+}
+
+async function doReplay() {
+  if (!current) { alert("select an incident first"); return; }
+  const at = document.getElementById("replay-at").value.trim();
+  try {
+    const out = await api(`/api/incidents/${current}/replay?at=${encodeURIComponent(at)}`);
+    document.getElementById("replay-out").innerHTML =
+      `<div class="muted">source: ${esc(out.source)} · ${out.events.length} events known at ${esc(at)}</div>` +
+      out.events.map(e => `<div class="hit">[${esc(e.kind)}] ${esc((e.body || "").slice(0, 100))}</div>`).join("");
+  } catch (e) { alert(e.message); }
+}
+
+loadIncidents();
+setInterval(loadIncidents, 15000);
+</script>
+</body>
+</html>
