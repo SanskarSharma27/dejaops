@@ -5,6 +5,7 @@ CockroachDB runs SERIALIZABLE by default and surfaces contention as SQLSTATE
 that loop with exponential backoff + jitter.
 """
 
+import atexit
 import logging
 import random
 import time
@@ -41,6 +42,7 @@ def pool() -> ConnectionPool:
             kwargs={"row_factory": dict_row, "application_name": "dejaops"},
             open=True,
         )
+        atexit.register(_pool.close)  # clean shutdown for scripts/tests
     return _pool
 
 

@@ -22,7 +22,10 @@ def main() -> int:
         print("DATABASE_URL is not set", file=sys.stderr)
         return 1
 
-    statements = [s.strip() for s in SCHEMA.read_text().split(";") if s.strip()]
+    # Strip `--` comments before splitting: comments may contain semicolons,
+    # and no string literal in the schema contains `--`.
+    sql = "\n".join(line.split("--", 1)[0] for line in SCHEMA.read_text().splitlines())
+    statements = [s.strip() for s in sql.split(";") if s.strip()]
 
     with psycopg.connect(url, autocommit=True) as conn:
         try:

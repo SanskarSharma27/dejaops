@@ -5,6 +5,10 @@ Usage: DATABASE_URL=... python scripts/seed.py            (Bedrock embeddings)
 
 Inserts row-by-row on purpose: IMPORT INTO is not supported on tables with a
 vector index, and the corpus is small. Idempotent via external_key dedupe.
+
+--wipe-all first truncates ALL application tables. Use it when switching
+embedding modes (fake <-> Titan): vectors from different embedding spaces must
+never coexist, or similarity search silently degrades.
 """
 
 import json
@@ -20,7 +24,18 @@ from dejaops.embeddings import embed  # noqa: E402
 DATA = Path(__file__).resolve().parents[1] / "seed" / "incidents.json"
 
 
+def wipe_all() -> None:
+    for table in (
+        "memory_versions", "action_ledger", "working_memory",
+        "memory_chunks", "incident_events", "runbooks", "incidents",
+    ):
+        db.execute(f"DELETE FROM {table}")
+        print(f"wiped {table}")
+
+
 def main() -> int:
+    if "--wipe-all" in sys.argv:
+        wipe_all()
     payload = json.loads(DATA.read_text())
     now = datetime.now(timezone.utc)
     inserted = skipped = 0
