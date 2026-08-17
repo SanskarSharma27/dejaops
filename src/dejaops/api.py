@@ -22,7 +22,22 @@ log = logging.getLogger("dejaops.api")
 
 app = FastAPI(title="DejaOps", version="0.1.0")
 
-_WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+def _find_web_dir() -> Path:
+    """Repo layout (src/dejaops/../../web), Lambda task root, or cwd."""
+    import os
+
+    candidates = [
+        Path(__file__).resolve().parents[2] / "web",
+        Path(os.environ.get("LAMBDA_TASK_ROOT", "/nonexistent")) / "web",
+        Path.cwd() / "web",
+    ]
+    for c in candidates:
+        if (c / "index.html").exists():
+            return c
+    return candidates[0]
+
+
+_WEB_DIR = _find_web_dir()
 _hits: dict[str, deque] = defaultdict(deque)
 
 _PUBLIC_PATHS = {"/", "/healthz", "/favicon.ico"}

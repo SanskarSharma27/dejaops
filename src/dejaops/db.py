@@ -39,6 +39,7 @@ def pool() -> ConnectionPool:
             cfg.database_url,
             min_size=0,
             max_size=2,
+            timeout=10,  # fail fast: API Gateway caps requests at ~29s
             kwargs={"row_factory": dict_row, "application_name": "dejaops"},
             open=True,
         )
