@@ -20,7 +20,7 @@ An agent that retries a tool call must not perform the side effect twice. Becaus
 Browser ──> AWS Lambda Function URL (FastAPI + Mangum, container image)
                 │
                 ├──> Amazon Bedrock
-                │      ├── Claude Haiku 4.5 (anthropic.claude-haiku-4-5) — agent loop, consolidation
+                │      ├── Claude Haiku 4.5 (global cross-region inference profile) — agent loop, consolidation
                 │      └── Titan Text Embeddings V2 — 1024-dim, L2-normalized
                 │
                 └──> CockroachDB Cloud (psycopg3, public TLS — no VPC, no NAT)

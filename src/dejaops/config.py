@@ -12,11 +12,13 @@ def _bool(name: str, default: str = "0") -> bool:
 @dataclass(frozen=True)
 class Settings:
     database_url: str = field(default_factory=lambda: os.environ.get("DATABASE_URL", ""))
-    aws_region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-east-1"))
+    aws_region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "ap-south-1"))
 
     # Claude via the Bedrock Messages endpoint (Anthropic SDK Mantle client).
     llm_model_id: str = field(
-        default_factory=lambda: os.environ.get("LLM_MODEL_ID", "anthropic.claude-haiku-4-5")
+        default_factory=lambda: os.environ.get(
+            "LLM_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        )
     )
     embed_model_id: str = field(
         default_factory=lambda: os.environ.get("EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")

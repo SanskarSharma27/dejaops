@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-south-1}"
 FUNC="dejaops"
 REPO="dejaops"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -28,7 +28,24 @@ docker push "$IMAGE"
 echo "==> Read secrets from SSM"
 DATABASE_URL=$(aws ssm get-parameter --name /dejaops/database-url --with-decryption --query Parameter.Value --output text)
 DEMO_TOKEN=$(aws ssm get-parameter --name /dejaops/demo-token --with-decryption --query Parameter.Value --output text)
-ENV_VARS="Variables={DATABASE_URL=${DATABASE_URL},DEMO_TOKEN=${DEMO_TOKEN},LLM_MODEL_ID=anthropic.claude-haiku-4-5,EMBED_MODEL_ID=amazon.titan-embed-text-v2:0}"
+
+# FAKE=1 deploys in offline mode (canned LLM + deterministic embeddings) —
+# used while Bedrock access is pending; rerun without FAKE to flip to real.
+ENV_JSON=$(mktemp)
+python3 - "$DATABASE_URL" "$DEMO_TOKEN" "${FAKE:-0}" > "$ENV_JSON" <<'PY'
+import json, sys
+env = {
+    "DATABASE_URL": sys.argv[1],
+    "DEMO_TOKEN": sys.argv[2],
+    "LLM_MODEL_ID": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "EMBED_MODEL_ID": "amazon.titan-embed-text-v2:0",
+}
+if sys.argv[3] == "1":
+    env["FAKE_LLM"] = "1"
+    env["FAKE_EMBEDDINGS"] = "1"
+print(json.dumps({"Variables": env}))
+PY
+ENV_VARS="file://${ENV_JSON}"
 
 echo "==> Create or update function"
 if aws lambda get-function --function-name "$FUNC" --region "$REGION" >/dev/null 2>&1; then

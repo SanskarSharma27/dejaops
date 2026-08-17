@@ -1,8 +1,11 @@
-"""Claude via Amazon Bedrock, using the Anthropic SDK's Bedrock Messages client
-(AnthropicBedrockMantle). Bedrock model IDs carry the `anthropic.` prefix, e.g.
-`anthropic.claude-haiku-4-5`. AWS credentials/billing are unchanged — this is
-the Bedrock endpoint, reached with a first-class Messages API client instead of
-hand-rolled InvokeModel payloads.
+"""Claude via Amazon Bedrock, using the Anthropic SDK's AnthropicBedrock client.
+
+In ap-south-1, Claude Haiku 4.5 is served through Bedrock *global cross-region
+inference*, so the model ID is the inference-profile form
+`global.anthropic.claude-haiku-4-5-20251001-v1:0` (the bare model ID rejects
+on-demand invocation, and the newer bedrock-mantle endpoint 403s until the
+account's Anthropic allowlisting clears). Same Messages API + tool-use surface
+either way; AWS credentials/billing unchanged.
 
 FAKE_LLM=1 returns canned responses so the API and tests run without AWS.
 """
@@ -37,9 +40,9 @@ _client = None
 def _bedrock_client():
     global _client
     if _client is None:
-        from anthropic import AnthropicBedrockMantle
+        from anthropic import AnthropicBedrock
 
-        _client = AnthropicBedrockMantle(aws_region=settings().aws_region)
+        _client = AnthropicBedrock(aws_region=settings().aws_region)
     return _client
 
 
