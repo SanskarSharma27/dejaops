@@ -19,18 +19,21 @@ Stage-one judging is pass/fail on required tools. This page maps each claimed to
 - [ ] TODO: add screenshots once the cluster is up
 
 ### 3. Agent Skills Repo — development workflow
-- Installed: `npx skills add cockroachlabs/cockroachdb-skills`
-- Used for: vector-index guidance, TTL configuration, query-performance skills during schema design.
-- [ ] TODO: note which skills fired, with a transcript snippet
+- Installed: `npx skills add cockroachlabs/cockroachdb-skills` — the full skills set is
+  committed in this repo under `.agents/skills/` (30+ skills, symlinked into Claude Code
+  via `.claude/`), covering vector indexing, TTL, query performance, and security.
+- Used during schema design and query analysis in this project's development sessions.
 
 ### 4. ccloud CLI — cluster lifecycle
-- Cluster creation, connection info, and the service account used by the app:
+- Installed: `ccloud 0.6.12` (`curl .../ccloud_linux-amd64_0.6.12.tar.gz | tar -xz`)
+- Used for cluster inspection and SQL access during development:
   ```bash
-  ccloud cluster create dejaops --cloud AWS
-  ccloud cluster sql dejaops            # verification queries
-  ccloud auth ...                        # service account for CI/deploy
+  ccloud auth login
+  ccloud cluster list
+  ccloud cluster info dejaops           # region/plan/version verification
+  ccloud cluster sql dejaops            # ad-hoc verification queries
   ```
-- [ ] TODO: paste actual commands used + output snippets
+- [ ] TODO: paste real output snippets after `ccloud auth login`
 
 ## AWS services (1 required — 5 used)
 
