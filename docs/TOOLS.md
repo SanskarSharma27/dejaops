@@ -33,7 +33,15 @@ Stage-one judging is pass/fail on required tools. This page maps each claimed to
   ccloud cluster info dejaops           # region/plan/version verification
   ccloud cluster sql dejaops            # ad-hoc verification queries
   ```
-- [ ] TODO: paste real output snippets after `ccloud auth login`
+- Captured evidence (2026-08-18):
+  ```
+  $ ccloud auth whoami
+  logged in to "CloudAngles" (org-3bnjr) as Sanskar Sharma
+
+  $ ccloud cluster list
+  NAME     ID                                    PLAN TYPE   STATE    CLOUD  VERSION
+  dejaops  9e93e905-12fa-4069-9ec8-fb59ea41ce2d  SERVERLESS  CREATED  AWS    v26.2.5
+  ```
 
 ## AWS services (1 required — 5 used)
 
