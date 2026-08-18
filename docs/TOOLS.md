@@ -16,7 +16,6 @@ Stage-one judging is pass/fail on required tools. This page maps each claimed to
 - Evidence to capture before submission (screenshots in `docs/img/`):
   - Cloud Console MCP configuration page
   - A Claude Code session inspecting `memory_chunks` / query plan via MCP
-- [ ] TODO: add screenshots once the cluster is up
 
 ### 3. Agent Skills Repo — development workflow
 - Installed: `npx skills add cockroachlabs/cockroachdb-skills` — the full skills set is
