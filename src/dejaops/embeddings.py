@@ -16,14 +16,19 @@ stack runs offline (local dev, CI) with stable, repeatable similarity results.
 
 import hashlib
 import json
+import logging
 import math
 import struct
+import time
 from functools import lru_cache
 
 from .config import settings
 
+log = logging.getLogger("dejaops.embeddings")
+
 _MAX_INPUT_CHARS = 20_000  # both providers cap input; truncate defensively
 _VOYAGE_URL = "https://api.voyageai.com/v1/embeddings"
+_VOYAGE_MAX_RETRIES = 8
 
 
 def l2_normalize(vec: list[float]) -> list[float]:
@@ -80,14 +85,20 @@ def _voyage_embedding(text: str, input_type: str, cfg) -> list[float]:
         "input_type": input_type,
         "output_dimension": cfg.embed_dim,
     }
-    resp = httpx.post(
-        _VOYAGE_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {cfg.voyage_api_key}"},
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    headers = {"Authorization": f"Bearer {cfg.voyage_api_key}"}
+
+    # Voyage's free tier rate-limits hard (a few requests/minute), so 429s are
+    # expected rather than exceptional: honor Retry-After and back off.
+    for attempt in range(_VOYAGE_MAX_RETRIES):
+        resp = httpx.post(_VOYAGE_URL, json=payload, headers=headers, timeout=60.0)
+        if resp.status_code == 429:
+            wait = float(resp.headers.get("retry-after", 0)) or min(2**attempt * 5, 60)
+            log.warning("voyage 429; retrying in %.0fs (%d/%d)", wait, attempt + 1, _VOYAGE_MAX_RETRIES)
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
+    raise RuntimeError("voyage rate limit: exhausted retries")
 
 
 @lru_cache(maxsize=512)

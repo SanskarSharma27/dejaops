@@ -41,7 +41,16 @@ Vectors live **transactionally alongside** the relational agent state — one da
 3. **Agent Skills Repo** — installed via `npx skills add cockroachlabs/cockroachdb-skills`; used for operational guidance (index tuning, query analysis) during development.
 4. **ccloud CLI** — cluster and service-account management (see `docs/TOOLS.md` for evidence of all four).
 
-**AWS (≥1 required):** Amazon Bedrock (Claude + Titan), AWS Lambda (compute), SSM Parameter Store (secrets), ECR (image), CloudWatch (logs).
+**AWS (≥1 required):** AWS Lambda + API Gateway (compute and the public demo URL), SSM Parameter Store (secrets), Amazon ECR (container image), CloudWatch (logs), Amazon Bedrock (Claude Haiku 4.5 + Titan Text Embeddings V2).
+
+> **A note on Bedrock, in the interest of accuracy.** The Bedrock integration is real and
+> verified working end-to-end (`AnthropicBedrock` + Titan via boto3 — see `src/dejaops/llm.py`
+> and `src/dejaops/embeddings.py`). However, the AWS account created for this hackathon was
+> still awaiting Anthropic model allowlisting when the submission was recorded, so the live
+> demo and video run through the **direct vendor APIs instead** — the same Claude model, and
+> Voyage AI for embeddings. Both routes are first-class in the code and selected by
+> `LLM_PROVIDER` / `EMBED_PROVIDER`; switching back to Bedrock is two environment variables
+> and no code change. The remaining AWS services above are all load-bearing in the deployed app.
 
 ## Run it locally
 

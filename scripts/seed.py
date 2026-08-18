@@ -41,9 +41,23 @@ def main() -> int:
     inserted = skipped = 0
 
     for inc in payload["incidents"]:
-        if db.query_one("SELECT 1 FROM incidents WHERE external_key = %s", (inc["external_key"],)):
+        # Require the episodic chunk too, not just the incident row: a run that
+        # dies mid-embedding (rate limits) would otherwise leave the incident
+        # behind and skip it forever, silently losing it from vector recall.
+        done = db.query_one(
+            """
+            SELECT 1 FROM incidents i
+            JOIN memory_chunks m ON m.source_id = i.id AND m.tier = 'episodic'
+            WHERE i.external_key = %s
+            """,
+            (inc["external_key"],),
+        )
+        if done:
             skipped += 1
             continue
+        if db.query_one("SELECT 1 FROM incidents WHERE external_key = %s", (inc["external_key"],)):
+            print(f"repairing partial seed: {inc['title'][:50]}")
+            db.execute("DELETE FROM incidents WHERE external_key = %s", (inc["external_key"],))
         opened = now - timedelta(days=inc["days_ago"])
         resolved = opened + timedelta(hours=3)
         row = db.query_one(
