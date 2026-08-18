@@ -35,7 +35,7 @@ def recall(query: str, *, tier: str, k: int = 5, service: str | None = None) -> 
     the index scan. Similarity is reported as cosine (vectors are unit-length,
     so cosine = 1 - L2²/2).
     """
-    qvec = db.to_pgvector(list(embed(query)))
+    qvec = db.to_pgvector(list(embed(query, "query")))
     sql = """
         SELECT id, tier, source_kind, source_id, service, content,
                embedding <-> %s::VECTOR AS l2_distance

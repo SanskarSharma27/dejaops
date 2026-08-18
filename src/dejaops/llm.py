@@ -1,13 +1,19 @@
-"""Claude via Amazon Bedrock, using the Anthropic SDK's AnthropicBedrock client.
+"""Claude, reached either through Amazon Bedrock or the first-party API.
 
-In ap-south-1, Claude Haiku 4.5 is served through Bedrock *global cross-region
-inference*, so the model ID is the inference-profile form
-`global.anthropic.claude-haiku-4-5-20251001-v1:0` (the bare model ID rejects
-on-demand invocation, and the newer bedrock-mantle endpoint 403s until the
-account's Anthropic allowlisting clears). Same Messages API + tool-use surface
-either way; AWS credentials/billing unchanged.
+Both routes use the same Anthropic SDK and the identical Messages + tool-use
+surface, so the agent loop is provider-agnostic — only the client class and the
+model ID differ:
 
-FAKE_LLM=1 returns canned responses so the API and tests run without AWS.
+  LLM_PROVIDER=bedrock   (default)  AnthropicBedrock, inference-profile model ID
+  LLM_PROVIDER=anthropic            Anthropic, plain model alias
+
+On Bedrock in ap-south-1, Claude Haiku 4.5 is served through *global
+cross-region inference*, so the model ID must be the inference-profile form
+`global.anthropic.claude-haiku-4-5-20251001-v1:0` — the bare model ID rejects
+on-demand invocation.
+
+FAKE_LLM=1 returns canned responses so the API and tests run with no vendor
+credentials at all.
 """
 
 import logging
@@ -35,14 +41,25 @@ class FakeMessage:
 
 
 _client = None
+_client_provider: str | None = None
 
 
-def _bedrock_client():
-    global _client
-    if _client is None:
-        from anthropic import AnthropicBedrock
+def _llm_client():
+    """Build (and memoize) the client for the configured provider."""
+    global _client, _client_provider
+    cfg = settings()
+    if _client is None or _client_provider != cfg.llm_provider:
+        if cfg.llm_provider == "anthropic":
+            from anthropic import Anthropic
 
-        _client = AnthropicBedrock(aws_region=settings().aws_region)
+            if not cfg.anthropic_api_key:
+                raise RuntimeError("LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set")
+            _client = Anthropic(api_key=cfg.anthropic_api_key)
+        else:
+            from anthropic import AnthropicBedrock
+
+            _client = AnthropicBedrock(aws_region=cfg.aws_region)
+        _client_provider = cfg.llm_provider
     return _client
 
 
@@ -70,17 +87,18 @@ def create_message(
         )
 
     kwargs: dict[str, Any] = {
-        "model": cfg.llm_model_id,
+        "model": cfg.resolved_llm_model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": messages,
     }
     if tools:
         kwargs["tools"] = tools
-    resp = _bedrock_client().messages.create(**kwargs)
+    resp = _llm_client().messages.create(**kwargs)
     log.info(
-        "llm call model=%s stop=%s in=%s out=%s",
-        cfg.llm_model_id,
+        "llm call provider=%s model=%s stop=%s in=%s out=%s",
+        cfg.llm_provider,
+        cfg.resolved_llm_model,
         resp.stop_reason,
         resp.usage.input_tokens,
         resp.usage.output_tokens,
