@@ -88,7 +88,13 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "action": {"type": "string"},
-                "target": {"type": "string", "description": "Service or component to act on"},
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "The bare service identifier to act on, exactly as it appears on the "
+                        "incident — e.g. 'payment-gateway'. No extra words, no 'service' prefix."
+                    ),
+                },
                 "reason": {"type": "string", "description": "Why this action, citing recalled evidence"},
             },
             "required": ["action", "target", "reason"],

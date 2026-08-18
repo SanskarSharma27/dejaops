@@ -11,6 +11,7 @@ the claimed row and returns the original result without re-executing.
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 import psycopg
@@ -20,9 +21,27 @@ from . import db
 log = logging.getLogger("dejaops.ledger")
 
 
+# Filler the model tends to prepend when naming a target ("service payment-gateway",
+# "the payment-gateway service"). Stripped so it can't fracture the key.
+_TARGET_FILLER = {"service", "the", "a", "an", "on", "for", "app", "application", "deployment"}
+
+
+def canonical_target(target: str) -> str:
+    """Normalize a model-supplied target into a stable identifier.
+
+    The idempotency key must not depend on incidental wording. Claude may say
+    "payment-gateway" on one call and "service payment-gateway" on the retry;
+    both denote the same thing and must hash identically, or the ledger's
+    exactly-once guarantee silently degrades into at-least-once.
+    """
+    cleaned = re.sub(r"[^a-z0-9\s\-_]", " ", target.lower())
+    words = [w for w in re.split(r"[\s_]+", cleaned) if w and w not in _TARGET_FILLER]
+    return "-".join("-".join(words).split("-")) if words else target.strip().lower()
+
+
 def idempotency_key(incident_id: str, action: str, target: str) -> str:
     """Deterministic key: the same remediation on the same incident is one action."""
-    raw = f"{incident_id}|{action}|{target}"
+    raw = f"{incident_id}|{action.strip().lower()}|{canonical_target(target)}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -53,6 +72,7 @@ def execute_exactly_once(
         }
 
     key = idempotency_key(incident_id, action, target)
+    target = canonical_target(target)  # what actually gets acted on and recorded
     args = {"target": target, "reason": reason}
 
     def txn(conn: psycopg.Connection) -> dict[str, Any]:

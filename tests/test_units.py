@@ -6,7 +6,7 @@ import pytest
 
 from dejaops import db
 from dejaops.embeddings import _fake_embedding, l2_normalize
-from dejaops.ledger import idempotency_key
+from dejaops.ledger import canonical_target, idempotency_key
 from dejaops.memory import _TS_RE
 
 
@@ -50,6 +50,33 @@ def test_idempotency_key_stable_and_distinct():
     k3 = idempotency_key("inc-1", "restart_service", "orders-api")
     assert k1 == k2 != k3
     assert len(k1) == 32
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "payment-gateway",
+        "service payment-gateway",
+        "the payment-gateway service",
+        "  Payment-Gateway  ",
+        "payment_gateway",
+        "payment-gateway.",
+    ],
+)
+def test_idempotency_key_survives_model_phrasing(variant):
+    """The key must not fracture on incidental wording.
+
+    Claude may name the same target differently between a call and its retry;
+    if that changed the key, the ledger would silently degrade from
+    exactly-once to at-least-once — the exact bug this guards.
+    """
+    assert idempotency_key("inc-1", "rollback_deploy", variant) == idempotency_key(
+        "inc-1", "rollback_deploy", "payment-gateway"
+    )
+
+
+def test_distinct_targets_still_distinct():
+    assert canonical_target("payment-gateway") != canonical_target("fraud-check")
 
 
 @pytest.mark.parametrize(
