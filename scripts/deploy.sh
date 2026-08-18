@@ -26,23 +26,34 @@ docker build -t "$IMAGE" .
 docker push "$IMAGE"
 
 echo "==> Read secrets from SSM"
-DATABASE_URL=$(aws ssm get-parameter --name /dejaops/database-url --with-decryption --query Parameter.Value --output text)
-DEMO_TOKEN=$(aws ssm get-parameter --name /dejaops/demo-token --with-decryption --query Parameter.Value --output text)
+ssm() { aws ssm get-parameter --name "$1" --with-decryption --query Parameter.Value --output text --region "$REGION" 2>/dev/null; }
+DATABASE_URL=$(ssm /dejaops/database-url)
+DEMO_TOKEN=$(ssm /dejaops/demo-token)
+ANTHROPIC_API_KEY=$(ssm /dejaops/anthropic-api-key)
+VOYAGE_API_KEY=$(ssm /dejaops/voyage-api-key)
 
-# FAKE=1 deploys in offline mode (canned LLM + deterministic embeddings) —
-# used while Bedrock access is pending; rerun without FAKE to flip to real.
+# Provider routing (see src/dejaops/config.py):
+#   PROVIDER=bedrock   Claude + Titan via Amazon Bedrock  (default; needs model access)
+#   PROVIDER=direct    Claude API + Voyage AI             (fallback while Bedrock is pending)
+#   FAKE=1             offline stand-ins, no vendor calls at all
 ENV_JSON=$(mktemp)
-python3 - "$DATABASE_URL" "$DEMO_TOKEN" "${FAKE:-0}" > "$ENV_JSON" <<'PY'
+trap 'rm -f "$ENV_JSON"' EXIT
+python3 - "$DATABASE_URL" "$DEMO_TOKEN" "$ANTHROPIC_API_KEY" "$VOYAGE_API_KEY" \
+         "${PROVIDER:-bedrock}" "${FAKE:-0}" > "$ENV_JSON" <<'PY'
 import json, sys
-env = {
-    "DATABASE_URL": sys.argv[1],
-    "DEMO_TOKEN": sys.argv[2],
-    "LLM_MODEL_ID": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "EMBED_MODEL_ID": "amazon.titan-embed-text-v2:0",
-}
-if sys.argv[3] == "1":
-    env["FAKE_LLM"] = "1"
-    env["FAKE_EMBEDDINGS"] = "1"
+db, token, anthropic_key, voyage_key, provider, fake = sys.argv[1:7]
+env = {"DATABASE_URL": db, "DEMO_TOKEN": token, "MAX_AGENT_ITERATIONS": "5"}
+if provider == "direct":
+    env |= {
+        "LLM_PROVIDER": "anthropic",
+        "EMBED_PROVIDER": "voyage",
+        "ANTHROPIC_API_KEY": anthropic_key,
+        "VOYAGE_API_KEY": voyage_key,
+    }
+else:
+    env |= {"LLM_PROVIDER": "bedrock", "EMBED_PROVIDER": "bedrock"}
+if fake == "1":
+    env |= {"FAKE_LLM": "1", "FAKE_EMBEDDINGS": "1"}
 print(json.dumps({"Variables": env}))
 PY
 ENV_VARS="file://${ENV_JSON}"
