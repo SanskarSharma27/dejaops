@@ -164,13 +164,16 @@ def run_turn(incident: dict, user_message: str) -> dict:
     memory.remember_event(incident_id, "user", user_message)
     messages: list[dict] = [{"role": "user", "content": f"{context}\n\nOperator: {user_message}"}]
 
-    final_text = ""
+    # Accumulate every text block the agent emits, not just the last one: the
+    # narration that explains what memory returned usually arrives in an early
+    # iteration alongside the tool calls, and overwriting would discard it.
+    said: list[str] = []
     for _ in range(settings().max_agent_iterations):
         resp = create_message(system=SYSTEM_PROMPT, messages=messages, tools=TOOLS)
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
-        text = "".join(b.text for b in resp.content if b.type == "text")
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if text:
-            final_text = text
+            said.append(text)
 
         if resp.stop_reason != "tool_use" or not tool_uses:
             break
@@ -189,6 +192,7 @@ def run_turn(incident: dict, user_message: str) -> dict:
                 )
         messages.append({"role": "user", "content": results})
 
+    final_text = "\n\n".join(said)
     if final_text:
         memory.remember_event(incident_id, "agent", final_text)
     return {"reply": final_text, "memory_trace": trace}
