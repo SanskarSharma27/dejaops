@@ -17,11 +17,11 @@ An agent that retries a tool call must not perform the side effect twice. Becaus
 ## Architecture
 
 ```
-Browser ──> AWS Lambda Function URL (FastAPI + Mangum, container image)
+Browser ──> API Gateway (HTTP API) ──> AWS Lambda (FastAPI + Mangum, container image)
                 │
-                ├──> Amazon Bedrock
-                │      ├── Claude Haiku 4.5 (global cross-region inference profile) — agent loop, consolidation
-                │      └── Titan Text Embeddings V2 — 1024-dim, L2-normalized
+                ├──> Inference + embeddings (provider switch)
+                │      ├── Amazon Bedrock: Claude Haiku 4.5 + Titan Text Embeddings V2
+                │      └── or direct APIs: Claude Haiku 4.5 + Voyage AI — 1024-dim, L2-normalized
                 │
                 └──> CockroachDB Cloud (psycopg3, public TLS — no VPC, no NAT)
                        ├── memory_chunks   VECTOR(1024) + CREATE VECTOR INDEX  → semantic recall
@@ -35,11 +35,10 @@ Vectors live **transactionally alongside** the relational agent state — one da
 
 ### Hackathon tool usage
 
-**CockroachDB (≥2 required):**
+**CockroachDB (≥2 required — 3 used):**
 1. **Distributed Vector Indexing** — core recall path (`db/schema.sql`, `src/dejaops/memory.py`). L2-only acceleration is handled by storing unit-normalized embeddings (L2 order ≡ cosine order).
-2. **CockroachDB Cloud Managed MCP Server** — wired into the development workflow (Claude Code inspects the live memory layer: schemas, query plans, read-only queries during development and demo).
-3. **Agent Skills Repo** — installed via `npx skills add cockroachlabs/cockroachdb-skills`; used for operational guidance (index tuning, query analysis) during development.
-4. **ccloud CLI** — cluster and service-account management (see `docs/TOOLS.md` for evidence of all four).
+2. **Agent Skills Repo** — installed via `npx skills add cockroachlabs/cockroachdb-skills`; used for operational guidance (index tuning, query analysis) during development.
+3. **ccloud CLI** — cluster lifecycle and verification against the live cluster (see `docs/TOOLS.md` for per-tool evidence).
 
 **AWS (≥1 required):** AWS Lambda + API Gateway (compute and the public demo URL), SSM Parameter Store (secrets), Amazon ECR (container image), CloudWatch (logs), Amazon Bedrock (Claude Haiku 4.5 + Titan Text Embeddings V2).
 
@@ -62,11 +61,11 @@ pip install -e ".[dev]"
 # 2. Point at a CockroachDB cluster (free tier works) and initialize
 export DATABASE_URL='postgresql://...'
 python scripts/init_db.py
-FAKE_EMBEDDINGS=1 python scripts/seed.py      # offline mode; drop the flag to use Bedrock
+FAKE_EMBEDDINGS=1 python scripts/seed.py      # offline mode; drop the flag to embed for real
 
 # 3. Run — fully offline mode needs no AWS at all:
 FAKE_EMBEDDINGS=1 FAKE_LLM=1 uvicorn dejaops.api:app --reload
-# or with Bedrock (model access enabled, AWS creds configured):
+# or for real: set LLM_PROVIDER/EMBED_PROVIDER (see .env.example) and run
 uvicorn dejaops.api:app --reload
 ```
 
@@ -79,7 +78,8 @@ Open http://localhost:8000 — fire a simulated alert (e.g. *"checkout timing ou
 aws ssm put-parameter --name /dejaops/database-url --type SecureString --value "$DATABASE_URL"
 aws ssm put-parameter --name /dejaops/demo-token   --type SecureString --value 'choose-a-token'
 
-./scripts/deploy.sh    # ECR + Lambda + Function URL; prints the public URL
+PROVIDER=direct ./scripts/deploy.sh   # ECR + Lambda + API Gateway; prints the public URL
+# PROVIDER=bedrock once Bedrock model access is granted; FAKE=1 for an offline deploy
 ```
 
 Cost posture: no VPC/NAT Gateway, no always-on compute, Haiku-class inference. Idle cost ≈ $0; the whole hackathon runs for under $20.
@@ -99,7 +99,8 @@ The integration suite proves the load-bearing claims against a real cluster: ran
 - `src/dejaops/memory.py` — recall / write / consolidate / replay
 - `src/dejaops/ledger.py` — exactly-once action execution
 - `src/dejaops/agent.py` — the tool loop (every memory op is traced to the UI)
-- `docs/DEMO.md` — demo script · `docs/TOOLS.md` — tool-usage evidence
+- `scripts/reset_demo.py` — restore the seeded corpus between demo runs
+- `docs/TOOLS.md` — per-tool usage evidence
 
 ## Disclosure
 

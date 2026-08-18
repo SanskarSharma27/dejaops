@@ -2,7 +2,7 @@
 
 Stage-one judging is pass/fail on required tools. This page maps each claimed tool to where it is used and how to verify.
 
-## CockroachDB tools (2 required — 4 used)
+## CockroachDB tools (2 required — 3 used)
 
 ### 1. Distributed Vector Indexing — load-bearing, runtime
 - Schema: `db/schema.sql` → `VECTOR(1024)` column + `CREATE VECTOR INDEX ... (tier, embedding)`
@@ -10,12 +10,11 @@ Stage-one judging is pass/fail on required tools. This page maps each claimed to
 - Verified by: `tests/test_db_integration.py::test_vector_recall_ranks_by_similarity`
 - Design notes (L2-only acceleration, normalization, empty-table index creation): `MEMORY_DESIGN.md`
 
-### 2. Managed MCP Server — development & inspection workflow
-- Connected from the Cloud Console to Claude Code during development; used for schema inspection,
-  `EXPLAIN` on the recall query, and read-only verification queries against the live memory layer.
-- Evidence to capture before submission (screenshots in `docs/img/`):
-  - Cloud Console MCP configuration page
-  - A Claude Code session inspecting `memory_chunks` / query plan via MCP
+### 2. Managed MCP Server — not used
+
+Listed here for completeness rather than claimed: the Managed MCP Server was **not** configured
+for this project, so it is not counted among the tools above. The three tools documented on this
+page are each backed by artifacts in this repository or reproducible command output.
 
 ### 3. Agent Skills Repo — development workflow
 - Installed: `npx skills add cockroachlabs/cockroachdb-skills` — the full skills set is
@@ -46,8 +45,9 @@ Stage-one judging is pass/fail on required tools. This page maps each claimed to
 
 | Service | Use | Where |
 |---|---|---|
-| **Amazon Bedrock** | Claude Haiku 4.5 (agent loop, consolidation) via the Anthropic SDK Bedrock client; Titan Text Embeddings V2 | `src/dejaops/llm.py`, `src/dejaops/embeddings.py` |
-| **AWS Lambda** | Serverless compute, container image, public Function URL | `Dockerfile`, `scripts/deploy.sh` |
+| **Amazon Bedrock** | Claude Haiku 4.5 (agent loop, consolidation) via `AnthropicBedrock`; Titan Text Embeddings V2 via boto3. Integrated and verified; the recorded demo used the direct-API fallback while this account's model allowlisting was pending — see README. | `src/dejaops/llm.py`, `src/dejaops/embeddings.py` |
+| **AWS Lambda** | Serverless compute; runs the whole app as a container image | `Dockerfile`, `scripts/deploy.sh` |
+| **Amazon API Gateway** | HTTP API fronting Lambda — the public demo URL | `scripts/deploy.sh` |
 | **SSM Parameter Store** | Secrets (DB URL, demo token) — free tier, no Secrets Manager cost | `scripts/deploy.sh` |
 | **Amazon ECR** | Image registry | `scripts/deploy.sh` |
 | **CloudWatch Logs** | Structured request/tool logging | automatic via Lambda |
